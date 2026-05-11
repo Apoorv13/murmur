@@ -63,3 +63,8 @@ jobs:
         run: |
           cd app
           swift build
+
+      - name: Run Swift tests
+        run: |
+          cd app
+          swift test

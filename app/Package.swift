@@ -8,6 +8,10 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
+        .library(
+            name: "MurmurCore",
+            targets: ["MurmurCore"]
+        ),
         .executable(
             name: "Murmur",
             targets: ["Murmur"]
@@ -22,6 +26,11 @@ let package = Package(
             name: "Murmur",
             dependencies: ["MurmurCore"],
             path: "Sources/Murmur"
+        ),
+        .testTarget(
+            name: "MurmurCoreTests",
+            dependencies: ["MurmurCore"],
+            path: "Tests/MurmurCoreTests"
         )
     ]
 )
