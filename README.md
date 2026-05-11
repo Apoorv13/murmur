@@ -56,7 +56,7 @@ source .venv/bin/activate
 pip install -e .
 
 # Start the daemon
-murmur-daemon start
+murmur-daemon
 
 # Launch TUI control panel
 murmur-tui
