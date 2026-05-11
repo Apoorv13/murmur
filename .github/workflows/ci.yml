@@ -24,7 +24,7 @@ jobs:
       - name: Install backend dependencies
         run: |
           cd backend
-          pip install -e .
+          pip install -e ".[dev]"
 
       - name: Lint with ruff
         run: |
@@ -57,4 +57,9 @@ jobs:
         run: brew install swiftlint
 
       - name: Run SwiftLint
-        run: swiftlint lint app/ --reporter colored
+        run: swiftlint lint app/
+
+      - name: Build Swift app
+        run: |
+          cd app
+          swift build
