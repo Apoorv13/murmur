@@ -1,4 +1,5 @@
 import AppKit
+import MurmurCore
 
 @main
 final class MurmurApp: NSObject, NSApplicationDelegate {

@@ -1,33 +1,42 @@
 # Murmur macOS App
 
-This directory contains the initial Swift scaffold for Murmur's macOS menu bar app.
-It is intentionally small and OSS-friendly: a Swift Package executable with AppKit
-source files, no generated Xcode project files, and an `Info.plist` ready for a
-future app bundle target.
+This directory contains Murmur's Swift Package menu bar app. It builds an
+accessory AppKit executable plus a small core module for shared app services,
+audio capture, and IPC.
 
 ## Build validation
 
 ```bash
 cd app
 swift build
+swift run MurmurIPCFramingChecks
 ```
 
-`swift build` validates the AppKit source and menu bar controller. Swift Package
-Manager builds an executable, not a signed `.app` bundle, so `Info.plist` is not
-applied by this validation path. The plist includes `LSUIElement` for no Dock icon
-and privacy purpose strings for the future bundled app.
+`swift build` validates the AppKit app, AVFoundation audio bridge, and IPC check
+executable. `MurmurIPCFramingChecks` verifies the daemon framing contract and the
+float32 base64 payload used for transcription without requiring microphone
+hardware.
+
+Swift Package Manager builds an executable, not a signed `.app` bundle, so
+`Info.plist` is not applied by this validation path. The plist includes
+`LSUIElement` for no Dock icon and privacy purpose strings for the future bundled
+app.
 
 ## Current behavior
 
 - Runs as an accessory app with no Dock icon.
-- Adds a menu bar status item.
-- Provides placeholder menu items for Start Listening, Preferences, and Quit.
+- Adds a menu bar status item with active-app context in the tooltip.
+- Captures microphone audio in memory with AVFoundation while listening.
+- Sends captured float32 audio to the local Python daemon over its Unix socket
+  using a 4-byte big-endian length prefix and JSON payload.
+- Surfaces microphone permission, capture, and daemon IPC errors with alerts.
 - Includes a `TextInserter` service that inserts text into the focused text field
   of the frontmost app via Accessibility APIs, with a clipboard-preserving
   Cmd+V fallback when direct AX insertion is unavailable.
 - Adds a global push-to-talk hotkey manager. Holding Right Option starts
   listening; releasing it stops listening.
 
+Audio is not persisted and the Swift app does not make network calls.
 Accessibility permission is required for text insertion. `TextInserter` reports
 explicit errors when permission is missing or when no focused text field is
 available.

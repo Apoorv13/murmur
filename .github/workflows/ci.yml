@@ -68,3 +68,8 @@ jobs:
         run: |
           cd app
           swift test
+
+      - name: Run Swift IPC checks
+        run: |
+          cd app
+          swift run MurmurIPCFramingChecks
