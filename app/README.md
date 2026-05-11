@@ -22,7 +22,10 @@ and privacy purpose strings for the future bundled app.
 - Runs as an accessory app with no Dock icon.
 - Adds a menu bar status item.
 - Provides placeholder menu items for Start Listening, Preferences, and Quit.
+- Includes a `TextInserter` service that inserts text into the focused text field
+  of the frontmost app via Accessibility APIs, with a clipboard-preserving
+  Cmd+V fallback when direct AX insertion is unavailable.
 
-Accessibility permission is requested through macOS when future text insertion
-code calls the Accessibility APIs; there is no separate app-level permission flow
-in this scaffold yet.
+Accessibility permission is required for text insertion. `TextInserter` reports
+explicit errors when permission is missing or when no focused text field is
+available.
