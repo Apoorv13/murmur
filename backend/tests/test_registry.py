@@ -2,7 +2,6 @@
 
 import pytest
 
-from murmur.engine.base import ModelInfo
 from murmur.engine.registry import MODELS, ModelRegistry
 
 
@@ -27,7 +26,7 @@ def test_get_model_info_nonexistent() -> None:
 
 def test_model_info_immutable() -> None:
     info = MODELS["whisper-base"]
-    with pytest.raises(Exception):
+    with pytest.raises(AttributeError):
         info.name = "hacked"  # type: ignore[misc]
 
 

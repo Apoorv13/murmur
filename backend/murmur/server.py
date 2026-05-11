@@ -49,7 +49,8 @@ class MurmurDaemon:
 
         # Set restrictive permissions on socket
         self._server = await asyncio.start_unix_server(
-            self._handle_client, path=str(self.socket_path)
+            self._handle_client,
+            path=str(self.socket_path),
         )
         os.chmod(self.socket_path, 0o600)
 
@@ -72,7 +73,9 @@ class MurmurDaemon:
         logger.info("Murmur daemon stopped")
 
     async def _handle_client(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
     ) -> None:
         """Handle a client connection."""
         try:
