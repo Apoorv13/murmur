@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_DIR="$ROOT_DIR/backend"
+APP_DIR="$ROOT_DIR/app"
+VENV_DIR="$BACKEND_DIR/.venv"
+RUN_DIR="$ROOT_DIR/.murmur/run"
+LOG_DIR="$ROOT_DIR/.murmur/logs"
+DAEMON_PID_FILE="$RUN_DIR/daemon.pid"
+APP_PID_FILE="$RUN_DIR/app.pid"
+DAEMON_LOG="$LOG_DIR/daemon.log"
+APP_LOG="$LOG_DIR/app.log"
+LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.apoorvdayal.murmur-dev.plist"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/murmur-dev <command>
+
+Commands:
+  setup                 Create backend venv and install Murmur backend
+  start                 Start backend daemon and Swift menu bar app
+  start --daemon-only   Start only the backend daemon
+  stop                  Stop processes started by this script
+  restart               Stop, then start
+  status                Show daemon/app process and log locations
+  tui                   Open the Textual control panel in this terminal
+  install-agent         Start daemon and dev menu bar app automatically at login
+  install-agent --daemon-only
+                        Start only the backend daemon automatically at login
+  uninstall-agent       Remove login LaunchAgent
+
+Notes:
+  - The SwiftPM app is a development executable, not a signed .app bundle yet.
+  - LaunchAgent can start the development executable at login. Use daemon-only
+    mode if you prefer launching the menu bar app manually.
+EOF
+}
+
+ensure_dirs() {
+  mkdir -p "$RUN_DIR" "$LOG_DIR"
+}
+
+ensure_backend() {
+  if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+    python3 -m venv "$VENV_DIR"
+  fi
+
+  if [[ ! -x "$VENV_DIR/bin/murmur-daemon" || ! -x "$VENV_DIR/bin/murmur-tui" ]]; then
+    "$VENV_DIR/bin/python" -m pip install -e "$BACKEND_DIR"
+  fi
+}
+
+pid_is_running() {
+  local pid_file="$1"
+  [[ -f "$pid_file" ]] || return 1
+
+  local pid
+  pid="$(cat "$pid_file")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+start_daemon() {
+  ensure_dirs
+  ensure_backend
+
+  if pid_is_running "$DAEMON_PID_FILE"; then
+    echo "Murmur daemon already running (PID $(cat "$DAEMON_PID_FILE"))."
+    return
+  fi
+
+  rm -f "$DAEMON_PID_FILE"
+  (
+    cd "$BACKEND_DIR"
+    nohup "$VENV_DIR/bin/murmur-daemon" >>"$DAEMON_LOG" 2>&1 &
+    echo "$!" >"$DAEMON_PID_FILE"
+  )
+
+  sleep 2
+  if pid_is_running "$DAEMON_PID_FILE"; then
+    echo "Started Murmur daemon (PID $(cat "$DAEMON_PID_FILE"))."
+    echo "Daemon log: $DAEMON_LOG"
+  else
+    echo "Failed to start Murmur daemon. See: $DAEMON_LOG" >&2
+    return 1
+  fi
+}
+
+start_app() {
+  ensure_dirs
+
+  if pid_is_running "$APP_PID_FILE"; then
+    echo "Murmur app already running (PID $(cat "$APP_PID_FILE"))."
+    return
+  fi
+
+  rm -f "$APP_PID_FILE"
+  (
+    cd "$APP_DIR"
+    nohup swift run Murmur >>"$APP_LOG" 2>&1 &
+    echo "$!" >"$APP_PID_FILE"
+  )
+
+  sleep 2
+  if pid_is_running "$APP_PID_FILE"; then
+    echo "Started Murmur menu bar app (PID $(cat "$APP_PID_FILE"))."
+    echo "App log: $APP_LOG"
+  else
+    echo "Failed to start Murmur app. See: $APP_LOG" >&2
+    return 1
+  fi
+}
+
+stop_pid_file() {
+  local label="$1"
+  local pid_file="$2"
+
+  if ! pid_is_running "$pid_file"; then
+    rm -f "$pid_file"
+    echo "$label is not running."
+    return
+  fi
+
+  local pid
+  pid="$(cat "$pid_file")"
+  kill "$pid"
+
+  for _ in {1..20}; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$pid_file"
+      echo "Stopped $label."
+      return
+    fi
+    sleep 0.25
+  done
+
+  echo "$label did not stop after SIGTERM (PID $pid)." >&2
+  return 1
+}
+
+status() {
+  ensure_dirs
+  if pid_is_running "$DAEMON_PID_FILE"; then
+    echo "Daemon: running (PID $(cat "$DAEMON_PID_FILE"))"
+  else
+    echo "Daemon: stopped"
+  fi
+
+  if [[ -S "${TMPDIR:-/tmp}/murmur.sock" || -S "/tmp/murmur.sock" ]]; then
+    echo "Socket: present"
+  else
+    echo "Socket: not present"
+  fi
+
+  if pid_is_running "$APP_PID_FILE"; then
+    echo "App: running (PID $(cat "$APP_PID_FILE"))"
+  else
+    echo "App: stopped"
+  fi
+
+  echo "Daemon log: $DAEMON_LOG"
+  echo "App log: $APP_LOG"
+}
+
+install_agent() {
+  local mode="${1:-}"
+  ensure_dirs
+  mkdir -p "$(dirname "$LAUNCH_AGENT")"
+
+  local extra_arg=""
+  if [[ "$mode" == "--daemon-only" ]]; then
+    extra_arg="
+    <string>--daemon-only</string>"
+  elif [[ -n "$mode" ]]; then
+    echo "Unknown install-agent option: $mode" >&2
+    return 2
+  fi
+
+  cat >"$LAUNCH_AGENT" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.apoorvdayal.murmur-dev</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$SCRIPT_DIR/murmur-dev</string>
+    <string>start</string>$extra_arg
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$LOG_DIR/launch-agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>$LOG_DIR/launch-agent.err.log</string>
+</dict>
+</plist>
+EOF
+
+  launchctl bootout "gui/$(id -u)" "$LAUNCH_AGENT" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$LAUNCH_AGENT"
+  echo "Installed LaunchAgent: $LAUNCH_AGENT"
+  if [[ "$mode" == "--daemon-only" ]]; then
+    echo "The backend daemon will start at login."
+  else
+    echo "The backend daemon and development menu bar app will start at login."
+  fi
+}
+
+uninstall_agent() {
+  launchctl bootout "gui/$(id -u)" "$LAUNCH_AGENT" >/dev/null 2>&1 || true
+  rm -f "$LAUNCH_AGENT"
+  echo "Removed LaunchAgent: $LAUNCH_AGENT"
+}
+
+command="${1:-}"
+case "$command" in
+  setup)
+    ensure_backend
+    echo "Backend is ready: $VENV_DIR"
+    ;;
+  start)
+    start_daemon
+    if [[ "${2:-}" != "--daemon-only" ]]; then
+      start_app
+    fi
+    ;;
+  stop)
+    stop_pid_file "Murmur app" "$APP_PID_FILE"
+    stop_pid_file "Murmur daemon" "$DAEMON_PID_FILE"
+    ;;
+  restart)
+    "$0" stop || true
+    "$0" start
+    ;;
+  status)
+    status
+    ;;
+  tui)
+    ensure_backend
+    exec "$VENV_DIR/bin/murmur-tui"
+    ;;
+  install-agent)
+    ensure_backend
+    install_agent "${2:-}"
+    ;;
+  uninstall-agent)
+    uninstall_agent
+    ;;
+  ""|help|--help|-h)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $command" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
