@@ -1,18 +1,22 @@
 import AppKit
+import MurmurCore
 
 final class MenuBarController: NSObject {
     private let audioManager: AudioCaptureManaging
     private let preferencesManager: PreferencesManaging
+    private let appContextDetector: AppContextDetecting
     private let statusItem: NSStatusItem
     private let startListeningItem = NSMenuItem()
 
     init(
         audioManager: AudioCaptureManaging,
         preferencesManager: PreferencesManaging,
+        appContextDetector: AppContextDetecting = AppContextDetector(),
         statusBar: NSStatusBar = .system
     ) {
         self.audioManager = audioManager
         self.preferencesManager = preferencesManager
+        self.appContextDetector = appContextDetector
         statusItem = statusBar.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureStatusItem()
@@ -25,7 +29,10 @@ final class MenuBarController: NSObject {
             button.toolTip = "Murmur"
         }
 
-        statusItem.menu = buildMenu()
+        let menu = buildMenu()
+        menu.delegate = self
+        statusItem.menu = menu
+        refreshAppContextTooltip()
     }
 
     private func buildMenu() -> NSMenu {
@@ -58,8 +65,15 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func toggleListening() {
+        refreshAppContextTooltip()
         audioManager.toggleListening()
         startListeningItem.title = audioManager.isListening ? "Stop Listening" : "Start Listening"
+    }
+
+    private func refreshAppContextTooltip() {
+        statusItem.button?.toolTip = AppContextDisplayFormatter.tooltip(
+            context: appContextDetector.currentContext()
+        )
     }
 
     @objc private func openPreferences() {
@@ -68,5 +82,11 @@ final class MenuBarController: NSObject {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+}
+
+extension MenuBarController: NSMenuDelegate {
+    func menuWillOpen(_: NSMenu) {
+        refreshAppContextTooltip()
     }
 }
