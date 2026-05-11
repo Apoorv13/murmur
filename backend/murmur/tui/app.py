@@ -11,10 +11,14 @@ from typing import Any
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Header, RichLog, Static
 
 from murmur.tui.ipc import DaemonIPCError, DaemonUnavailableError, MurmurIPCClient
 from murmur.tui.stats import render_stats
+from murmur.tui.transcription_log import (
+    TranscriptionHistory,
+    render_transcription_history,
+)
 
 _REFRESH_INTERVAL_SECONDS = 5.0
 
@@ -205,6 +209,38 @@ class ModelSwitcherPanel(Static):
         return min(self.selected_index, len(self.models) - 1)
 
 
+class TranscriptionLogPanel(RichLog):
+    """Scrollable transcription history for the current TUI session."""
+
+    def __init__(self, history: TranscriptionHistory) -> None:
+        super().__init__(
+            id="log-panel",
+            classes="panel",
+            wrap=True,
+            highlight=False,
+            markup=False,
+            auto_scroll=True,
+        )
+        self.history = history
+        self.notice: Text | None = None
+
+    def refresh_view(self) -> None:
+        self.clear()
+        self.write(render_transcription_history(self.history.entries))
+        if self.notice is not None:
+            self.write(Text())
+            self.write(self.notice)
+
+    def show_notice(self, message: str, *, style: str = "dim") -> None:
+        self.notice = Text(message, style=style)
+        self.refresh_view()
+
+    def clear_history(self) -> None:
+        self.history.clear()
+        self.notice = Text("Transcription history cleared.", style="green")
+        self.refresh_view()
+
+
 class MurmurControlPanel(App[None]):
     """Murmur daemon control panel."""
 
@@ -237,6 +273,7 @@ class MurmurControlPanel(App[None]):
 
     BINDINGS = [
         ("r", "refresh_dashboard", "Refresh"),
+        ("c", "clear_log", "Clear log"),
         ("up", "select_previous_model", "Prev model"),
         ("k", "select_previous_model", "Prev model"),
         ("down", "select_next_model", "Next model"),
@@ -250,6 +287,8 @@ class MurmurControlPanel(App[None]):
         self.client = client or MurmurIPCClient()
         self._last_status: dict[str, Any] | None = None
         self._last_status_at: float | None = None
+        self.transcription_history = TranscriptionHistory()
+        self._observed_transcription_count: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -257,7 +296,7 @@ class MurmurControlPanel(App[None]):
             with Horizontal():
                 yield ModelSwitcherPanel()
                 yield Static("Stats panel placeholder", id="stats-panel", classes="panel column")
-            yield Static("Log panel placeholder", id="log-panel", classes="panel")
+            yield TranscriptionLogPanel(self.transcription_history)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -267,6 +306,9 @@ class MurmurControlPanel(App[None]):
     def action_refresh_dashboard(self) -> None:
         self.refresh_dashboard()
 
+    def action_clear_log(self) -> None:
+        self.query_one(TranscriptionLogPanel).clear_history()
+
     def action_select_next_model(self) -> None:
         self.query_one(ModelSwitcherPanel).select_next()
 
@@ -275,23 +317,24 @@ class MurmurControlPanel(App[None]):
 
     async def action_switch_model(self) -> None:
         model_panel = self.query_one(ModelSwitcherPanel)
-        log_panel = self.query_one("#log-panel", Static)
+        log_panel = self.query_one(TranscriptionLogPanel)
         selected_model = model_panel.selected_model
 
         if selected_model is None:
             model_panel.set_error("No daemon models are available to switch.")
-            log_panel.update(Text("No model selected.", style="yellow"))
+            log_panel.show_notice("No model selected.", style="yellow")
             return
 
         if any(model.name == selected_model and model.active for model in model_panel.models):
             model_panel.set_error(f"{selected_model} is already active.")
-            log_panel.update(Text("Selected model is already active.", style="yellow"))
+            log_panel.show_notice("Selected model is already active.", style="yellow")
             return
 
         if model_panel.pending_model != selected_model:
             model_panel.request_confirmation(selected_model)
-            log_panel.update(
-                Text(f"Confirm switch to {selected_model} by pressing s again.", style="yellow"),
+            log_panel.show_notice(
+                f"Confirm switch to {selected_model} by pressing s again.",
+                style="yellow",
             )
             return
 
@@ -300,17 +343,17 @@ class MurmurControlPanel(App[None]):
         except DaemonUnavailableError:
             message = "Daemon unavailable. Start murmur-daemon, then retry."
             model_panel.set_error(message)
-            log_panel.update(Text(message, style="bold red"))
+            log_panel.show_notice(message, style="bold red")
             return
         except DaemonIPCError as exc:
             message = f"Switch failed: {_safe_error(exc)}"
             model_panel.set_error(message)
-            log_panel.update(Text(message, style="bold red"))
+            log_panel.show_notice(message, style="bold red")
             return
 
         switched_model = _safe_label(response.get("model"), fallback=selected_model)
         model_panel.switch_succeeded(switched_model)
-        log_panel.update(Text(f"Switched active model to {switched_model}.", style="green"))
+        log_panel.show_notice(f"Switched active model to {switched_model}.", style="green")
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
@@ -324,7 +367,7 @@ class MurmurControlPanel(App[None]):
     async def _refresh_dashboard(self) -> None:
         model_panel = self.query_one(ModelSwitcherPanel)
         stats_panel = self.query_one("#stats-panel", Static)
-        log_panel = self.query_one("#log-panel", Static)
+        log_panel = self.query_one(TranscriptionLogPanel)
 
         try:
             status, models = await asyncio.gather(
@@ -340,8 +383,9 @@ class MurmurControlPanel(App[None]):
                     age_seconds=self._last_status_age_seconds(),
                 ),
             )
-            log_panel.update(
-                Text("Daemon unavailable. Start murmur-daemon, then refresh.", style="yellow"),
+            log_panel.show_notice(
+                "Daemon unavailable. Start murmur-daemon, then refresh.",
+                style="yellow",
             )
             return
         except DaemonIPCError as exc:
@@ -354,14 +398,15 @@ class MurmurControlPanel(App[None]):
                     age_seconds=self._last_status_age_seconds(),
                 ),
             )
-            log_panel.update(Text(message, style="yellow"))
+            log_panel.show_notice(message, style="yellow")
             return
 
         self._last_status = dict(status)
         self._last_status_at = monotonic()
         model_panel.update_models(models)
         stats_panel.update(self._render_stats(self._last_status))
-        log_panel.update(Text("Connected to Murmur daemon", style="green"))
+        self._record_transcription_progress(self._last_status)
+        log_panel.show_notice("Connected to Murmur daemon", style="green")
 
     def _render_stats(self, status: Mapping[str, Any]) -> Text:
         return render_stats(status)
@@ -370,6 +415,33 @@ class MurmurControlPanel(App[None]):
         if self._last_status_at is None:
             return None
         return monotonic() - self._last_status_at
+
+    def _record_transcription_progress(self, status: Mapping[str, Any]) -> None:
+        current_count = _coerce_nonnegative_int(status.get("transcriptions"))
+        if current_count is None:
+            return
+
+        if self._observed_transcription_count is None:
+            self._observed_transcription_count = current_count
+            if current_count > 0:
+                self.transcription_history.append(
+                    f"Daemon already reported {current_count} transcription(s); "
+                    "details are unavailable because daemon history is not exposed yet.",
+                    model=_status_model(status),
+                )
+            return
+
+        if current_count <= self._observed_transcription_count:
+            self._observed_transcription_count = current_count
+            return
+
+        delta = current_count - self._observed_transcription_count
+        self._observed_transcription_count = current_count
+        self.transcription_history.append(
+            f"{delta} transcription(s) completed; transcript text is unavailable "
+            "because daemon history is not exposed yet.",
+            model=_status_model(status),
+        )
 
 
 def _as_mapping(value: object) -> Mapping[str, Any]:
@@ -390,6 +462,21 @@ def _coerce_int(value: object) -> int | None:
             return int(value)
         except ValueError:
             return None
+    return None
+
+
+def _coerce_nonnegative_int(value: object) -> int | None:
+    coerced = _coerce_int(value)
+    if coerced is None or coerced < 0:
+        return None
+    return coerced
+
+
+def _status_model(status: Mapping[str, Any]) -> str | None:
+    for key in ("active_model", "loaded_model", "model"):
+        value = status.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
     return None
 
 
