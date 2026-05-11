@@ -14,8 +14,13 @@ let package = Package(
         )
     ],
     targets: [
+        .target(
+            name: "MurmurCore",
+            path: "Sources/MurmurCore"
+        ),
         .executableTarget(
             name: "Murmur",
+            dependencies: ["MurmurCore"],
             path: "Sources/Murmur"
         )
     ]
