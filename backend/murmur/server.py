@@ -9,6 +9,7 @@ import os
 import signal
 import struct
 import tempfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ import numpy as np
 from murmur.audio import AudioCapture
 from murmur.context import get_context_for_app
 from murmur.engine.registry import ModelRegistry
+from murmur.vad import EnergyVoiceActivityDetector
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class MurmurDaemon:
         self.socket_path = socket_path
         self.registry = ModelRegistry()
         self.audio = AudioCapture()
+        self.vad = EnergyVoiceActivityDetector()
         self._server: asyncio.Server | None = None
         self._stats: dict[str, Any] = {
             "transcriptions": 0,
@@ -108,7 +111,8 @@ class MurmurDaemon:
 
     async def _dispatch(self, command: str, request: dict[str, Any]) -> dict[str, Any]:
         """Dispatch a command to the appropriate handler."""
-        handlers: dict[str, Any] = {
+        handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
+        handlers: dict[str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]] = {
             "transcribe": self._cmd_transcribe,
             "switch-model": self._cmd_switch_model,
             "list-models": self._cmd_list_models,
@@ -134,15 +138,28 @@ class MurmurDaemon:
         audio_b64 = request.get("audio", "")
         audio_bytes = base64.b64decode(audio_b64)
         audio = np.frombuffer(audio_bytes, dtype=np.float32)
+        sample_rate = int(request.get("sample_rate", self.audio.sample_rate))
 
         # Get app context
         bundle_id = request.get("bundle_id", "")
         app_name = request.get("app_name", "")
         context = get_context_for_app(bundle_id, app_name)
 
+        vad_result = self.vad.detect(audio, sample_rate=sample_rate)
+        if not vad_result.has_speech:
+            return {
+                "text": "",
+                "language": request.get("language", "en"),
+                "duration_ms": 0.0,
+                "model": self.registry.active_model,
+                "context": context.category,
+                "speech_detected": False,
+            }
+
         # Transcribe
         result = await engine.transcribe(
-            audio,
+            vad_result.trimmed_audio,
+            sample_rate=sample_rate,
             language=request.get("language", "en"),
             initial_prompt=context.prompt,
         )
@@ -157,6 +174,13 @@ class MurmurDaemon:
             "duration_ms": result.duration_ms,
             "model": self.registry.active_model,
             "context": context.category,
+            "speech_detected": True,
+            "vad": {
+                "start_sample": vad_result.start_sample,
+                "end_sample": vad_result.end_sample,
+                "speech_duration_ms": round(vad_result.speech_duration_ms, 1),
+                "original_duration_ms": round(vad_result.original_duration_ms, 1),
+            },
         }
 
     async def _cmd_switch_model(self, request: dict[str, Any]) -> dict[str, Any]:
