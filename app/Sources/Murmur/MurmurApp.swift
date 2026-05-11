@@ -7,9 +7,14 @@ final class MurmurApp: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        let launchAtLoginController = LaunchAtLoginController()
+        let preferencesManager = AppPreferencesManager(
+            launchAtLoginController: launchAtLoginController
+        )
         menuBarController = MenuBarController(
             audioManager: AudioCaptureManager(),
-            preferencesManager: PreferencesManager()
+            preferencesManager: preferencesManager,
+            launchAtLoginController: launchAtLoginController
         )
     }
 

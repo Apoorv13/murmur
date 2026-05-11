@@ -38,6 +38,9 @@ app.
   Cmd+V fallback when direct AX insertion is unavailable.
 - Adds a global push-to-talk hotkey manager. Holding Right Option starts
   listening; releasing it stops listening.
+- Provides a Preferences window for local settings placeholders: push-to-talk
+  hotkey preset, transcription model, language/accent profile, idle timeout, and
+  launch-at-login preference.
 
 Audio is not persisted and the Swift app does not make network calls.
 Accessibility permission is required for text insertion. `TextInserter` reports
@@ -80,3 +83,11 @@ target should apply `Info.plist`, provide `CFBundleIdentifier`, sign the app
 bundle, and then the same controller will register/unregister the main app login
 item. If macOS reports `requiresApproval`, Murmur opens System Settings >
 General > Login Items for the user to approve the registration.
+
+## Preferences
+
+Preferences are stored locally in `UserDefaultsAppPreferencesStore`. The Swift
+app does not send settings, text, or transcription contents over the network.
+Model and language/accent selections are placeholders for backend wiring. The
+launch-at-login control shares the same `LaunchAtLoginController` wiring as the
+menu item and stores the user's requested preference locally.
