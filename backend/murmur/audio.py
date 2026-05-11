@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
-import sounddevice as sd
 
 
 class AudioCapture:
@@ -14,6 +15,7 @@ class AudioCapture:
         self.channels = channels
         self._buffer: list[np.ndarray] = []
         self._recording = False
+        self._stream: Any | None = None
 
     @property
     def is_recording(self) -> bool:
@@ -21,6 +23,8 @@ class AudioCapture:
 
     def start(self) -> None:
         """Start recording audio from the microphone."""
+        import sounddevice as sd
+
         self._buffer = []
         self._recording = True
         self._stream = sd.InputStream(
@@ -38,8 +42,13 @@ class AudioCapture:
             Mono float32 numpy array, normalized to [-1, 1]
         """
         self._recording = False
+        if self._stream is None:
+            msg = "Audio capture has not been started."
+            raise RuntimeError(msg)
+
         self._stream.stop()
         self._stream.close()
+        self._stream = None
 
         if not self._buffer:
             return np.array([], dtype=np.float32)
@@ -53,7 +62,7 @@ class AudioCapture:
         indata: np.ndarray,
         frames: int,
         time_info: object,
-        status: sd.CallbackFlags,
+        status: object,
     ) -> None:
         """Callback for sounddevice stream — accumulates audio chunks."""
         if self._recording:

@@ -136,7 +136,7 @@ async def test_transcribe_reloads_last_selected_model_after_idle_unload(tmp_path
     daemon, registry = _daemon_with_fake_registry(tmp_path, idle_timeout_seconds=10.0)
     daemon.default_model = "whisper-base"
     daemon._selected_model = "whisper-small"
-    audio = np.zeros(4, dtype=np.float32)
+    audio = np.full(4000, 0.1, dtype=np.float32)
     audio_b64 = base64.b64encode(audio.tobytes()).decode()
 
     response = await daemon._cmd_transcribe({"audio": audio_b64})

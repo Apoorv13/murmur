@@ -27,6 +27,8 @@ dependencies = [
     "mlx-whisper>=0.4.0",
     "numpy>=1.26.0",
     "sounddevice>=0.4.6",
+    "textual>=0.79.0",
+    "rich>=13.7.0",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +44,7 @@ dev = [
 
 [project.scripts]
 murmur-daemon = "murmur.server:main"
+murmur-tui = "murmur.tui.app:main"
 
 [tool.ruff]
 target-version = "py311"
