@@ -30,6 +30,8 @@ app.
 - Sends captured float32 audio to the local Python daemon over its Unix socket
   using a 4-byte big-endian length prefix and JSON payload.
 - Surfaces microphone permission, capture, and daemon IPC errors with alerts.
+- Provides a Launch at Login menu item backed by `ServiceManagement.SMAppService`
+  when Murmur is running from a signed `.app` bundle.
 - Includes a `TextInserter` service that inserts text into the focused text field
   of the frontmost app via Accessibility APIs, with a clipboard-preserving
   Cmd+V fallback when direct AX insertion is unavailable.
@@ -62,3 +64,18 @@ setting `PushToTalkHotkeyKeyCode`, `PushToTalkHotkeyTriggerKind`,
 `PushToTalkHotkeyRequiredModifiers`, and `PushToTalkHotkeyDisplayName`.
 `PushToTalkHotkeyTriggerKind` accepts `modifier` or `key`; modifier values use a
 bitmask of shift `1`, control `2`, option `4`, command `8`, and function `16`.
+
+## Launch at Login
+
+The menu bar app exposes a Launch at Login toggle through
+`LaunchAtLoginController`. It uses `SMAppService.mainApp` and stores no custom
+state outside the macOS Login Items registration.
+
+Swift Package Manager builds Murmur as a raw executable, not a signed `.app`
+bundle, so the local `swift build` artifact cannot register itself as a login
+item. In that mode the controller reports an explicit unsupported state and the
+menu item is disabled with the bundle requirement. A future Xcode or packaging
+target should apply `Info.plist`, provide `CFBundleIdentifier`, sign the app
+bundle, and then the same controller will register/unregister the main app login
+item. If macOS reports `requiresApproval`, Murmur opens System Settings >
+General > Login Items for the user to approve the registration.
