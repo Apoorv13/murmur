@@ -6,10 +6,13 @@ final class MenuBarController: NSObject {
     private let preferencesManager: PreferencesManaging
     private let appContextDetector: AppContextDetecting
     private let hotkeyConfiguration: HotkeyConfiguration
+    private let launchAtLoginController: LaunchAtLoginControlling
     private let statusItem: NSStatusItem
     private let startListeningItem = NSMenuItem()
     private let hotkeyStatusItem = NSMenuItem()
     private let permissionItem = NSMenuItem()
+    private let launchAtLoginItem = NSMenuItem()
+    private let launchAtLoginDetailItem = NSMenuItem()
     private var hotkeyManager: HotkeyManager?
 
     init(
@@ -18,12 +21,14 @@ final class MenuBarController: NSObject {
         appContextDetector: AppContextDetecting = AppContextDetector(),
         hotkeyConfiguration: HotkeyConfiguration = UserDefaultsHotkeyConfigurationStore()
             .loadPushToTalkHotkey(),
+        launchAtLoginController: LaunchAtLoginControlling = LaunchAtLoginController(),
         statusBar: NSStatusBar = .system
     ) {
         self.audioManager = audioManager
         self.preferencesManager = preferencesManager
         self.appContextDetector = appContextDetector
         self.hotkeyConfiguration = hotkeyConfiguration
+        self.launchAtLoginController = launchAtLoginController
         statusItem = statusBar.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureAudioManagerCallbacks()
@@ -91,6 +96,13 @@ final class MenuBarController: NSObject {
         preferencesItem.target = self
         menu.addItem(preferencesItem)
 
+        launchAtLoginItem.target = self
+        launchAtLoginItem.action = #selector(toggleLaunchAtLogin)
+        menu.addItem(launchAtLoginItem)
+
+        launchAtLoginDetailItem.isEnabled = false
+        menu.addItem(launchAtLoginDetailItem)
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
@@ -130,6 +142,24 @@ final class MenuBarController: NSObject {
         preferencesManager.openPreferences()
     }
 
+    @objc private func toggleLaunchAtLogin() {
+        let snapshot = launchAtLoginController.currentSnapshot()
+        let menuState = LaunchAtLoginMenuState.make(snapshot: snapshot)
+
+        switch menuState.action {
+        case .enable:
+            _ = launchAtLoginController.setEnabled(true)
+        case .disable:
+            _ = launchAtLoginController.setEnabled(false)
+        case .openSystemSettings:
+            openLoginItemsSettings()
+        case .none:
+            break
+        }
+
+        updateMenuState()
+    }
+
     @objc private func quit() {
         NSApp.terminate(nil)
     }
@@ -137,6 +167,16 @@ final class MenuBarController: NSObject {
     @objc private func openKeyboardPermissions() {
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ) else {
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openLoginItemsSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension"
         ) else {
             return
         }
@@ -168,6 +208,20 @@ final class MenuBarController: NSObject {
             permissionItem.title = "Keyboard access required: open Privacy & Security…"
             permissionItem.isEnabled = true
         }
+
+        updateLaunchAtLoginMenuState()
+    }
+
+    private func updateLaunchAtLoginMenuState() {
+        let snapshot = launchAtLoginController.currentSnapshot()
+        let menuState = LaunchAtLoginMenuState.make(snapshot: snapshot)
+
+        launchAtLoginItem.title = menuState.title
+        launchAtLoginItem.isEnabled = menuState.isEnabled
+        launchAtLoginItem.state = menuState.isChecked ? .on : .off
+
+        launchAtLoginDetailItem.title = menuState.detail ?? ""
+        launchAtLoginDetailItem.isHidden = menuState.detail == nil
     }
 }
 

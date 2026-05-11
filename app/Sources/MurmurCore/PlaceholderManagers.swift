@@ -108,7 +108,9 @@ public final class PreferencesManager: PreferencesManaging {
         alert.informativeText = """
         Push-to-talk defaults to holding Right Option. Grant Accessibility access \
         in Privacy & Security so Murmur can observe the hotkey while other apps \
-        are active. In-app hotkey editing will be added in a future milestone.
+        are active. Launch at Login uses macOS Login Items when Murmur runs from \
+        a signed app bundle. In-app hotkey editing will be added in a future \
+        milestone.
         """
         alert.addButton(withTitle: "OK")
         alert.runModal()
