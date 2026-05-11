@@ -25,7 +25,8 @@ app.
 ## Current behavior
 
 - Runs as an accessory app with no Dock icon.
-- Adds a menu bar status item with active-app context in the tooltip.
+- Adds a menu bar status item with idle, listening, processing, and error
+  status rendering plus active-app context in the tooltip.
 - Captures microphone audio in memory with AVFoundation while listening.
 - Sends captured float32 audio to the local Python daemon over its Unix socket
   using a 4-byte big-endian length prefix and JSON payload.

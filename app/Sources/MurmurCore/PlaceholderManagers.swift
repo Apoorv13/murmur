@@ -3,6 +3,7 @@ import AppKit
 public protocol AudioCaptureManaging: AnyObject {
     var isListening: Bool { get }
     var isProcessing: Bool { get }
+    var status: MenuBarStatusState { get }
     var onStateChanged: ((Bool) -> Void)? { get set }
     var onError: ((String) -> Void)? { get set }
     var onTranscription: ((String, Bool) -> Void)? { get set }
@@ -17,6 +18,7 @@ public final class AudioCaptureManager: AudioCaptureManaging {
 
     public private(set) var isListening = false
     public private(set) var isProcessing = false
+    public private(set) var status: MenuBarStatusState = .idle
     public var onStateChanged: ((Bool) -> Void)?
     public var onError: ((String) -> Void)?
     public var onTranscription: ((String, Bool) -> Void)?
@@ -31,6 +33,8 @@ public final class AudioCaptureManager: AudioCaptureManaging {
         }
 
         isProcessing = true
+        status = .processing
+        onStateChanged?(isListening)
         Task { [weak self] in
             guard let self else {
                 return
@@ -41,12 +45,14 @@ public final class AudioCaptureManager: AudioCaptureManaging {
                 await MainActor.run {
                     self.isListening = true
                     self.isProcessing = false
+                    self.status = .listening
                     self.onStateChanged?(true)
                 }
             } catch {
                 await MainActor.run {
                     self.isListening = false
                     self.isProcessing = false
+                    self.status = .error
                     self.onStateChanged?(false)
                     self.onError?(error.localizedDescription)
                 }
@@ -60,6 +66,8 @@ public final class AudioCaptureManager: AudioCaptureManaging {
         }
 
         isProcessing = true
+        status = .processing
+        onStateChanged?(isListening)
         let activeApplication = NSWorkspace.shared.frontmostApplication
         let bundleID = activeApplication?.bundleIdentifier
         let appName = activeApplication?.localizedName
@@ -74,6 +82,7 @@ public final class AudioCaptureManager: AudioCaptureManaging {
                 await MainActor.run {
                     self.isListening = false
                     self.isProcessing = false
+                    self.status = .idle
                     self.onStateChanged?(false)
                     self.onTranscription?(response.text, response.speechDetected)
                 }
@@ -81,6 +90,7 @@ public final class AudioCaptureManager: AudioCaptureManaging {
                 await MainActor.run {
                     self.isListening = false
                     self.isProcessing = false
+                    self.status = .error
                     self.onStateChanged?(false)
                     self.onError?(error.localizedDescription)
                 }

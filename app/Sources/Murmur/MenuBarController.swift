@@ -7,10 +7,12 @@ final class MenuBarController: NSObject {
     private let appContextDetector: AppContextDetecting
     private let hotkeyConfiguration: HotkeyConfiguration
     private let statusItem: NSStatusItem
+    private let currentStatusItem = NSMenuItem()
     private let startListeningItem = NSMenuItem()
     private let hotkeyStatusItem = NSMenuItem()
     private let permissionItem = NSMenuItem()
     private var hotkeyManager: HotkeyManager?
+    private var statusState: MenuBarStatusState = .idle
 
     init(
         audioManager: AudioCaptureManaging,
@@ -42,14 +44,11 @@ final class MenuBarController: NSObject {
 
     private func configureStatusItem() {
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Murmur")
             button.imagePosition = .imageLeading
-            button.toolTip = "Murmur"
         }
 
         statusItem.menu = buildMenu()
         updateMenuState()
-        refreshAppContextTooltip()
     }
 
     private func configureAudioManagerCallbacks() {
@@ -57,6 +56,7 @@ final class MenuBarController: NSObject {
             self?.updateMenuState()
         }
         audioManager.onError = { [weak self] message in
+            self?.updateStatus(.error)
             self?.showAlert(title: "Murmur Audio Error", message: message)
         }
         audioManager.onTranscription = { [weak self] text, speechDetected in
@@ -68,6 +68,10 @@ final class MenuBarController: NSObject {
     private func buildMenu() -> NSMenu {
         let menu = NSMenu(title: "Murmur")
         menu.delegate = self
+
+        currentStatusItem.isEnabled = false
+        menu.addItem(currentStatusItem)
+        menu.addItem(.separator())
 
         startListeningItem.title = "Start Listening"
         startListeningItem.target = self
@@ -105,7 +109,6 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func toggleListening() {
-        refreshAppContextTooltip()
         audioManager.toggleListening()
         updateMenuState()
     }
@@ -120,10 +123,43 @@ final class MenuBarController: NSObject {
         alert.runModal()
     }
 
+    func updateStatus(_ state: MenuBarStatusState) {
+        statusState = state
+        let rendering = MenuBarStatusRenderer.render(state)
+
+        if let button = statusItem.button {
+            button.image = NSImage(
+                systemSymbolName: rendering.systemSymbolName,
+                accessibilityDescription: rendering.accessibilityDescription
+            )
+            button.title = rendering.title
+            button.contentTintColor = tintColor(for: state)
+        }
+
+        currentStatusItem.title = rendering.statusMenuTitle
+        startListeningItem.title = rendering.toggleMenuTitle
+        refreshAppContextTooltip()
+    }
+
     private func refreshAppContextTooltip() {
+        let rendering = MenuBarStatusRenderer.render(statusState)
         statusItem.button?.toolTip = AppContextDisplayFormatter.tooltip(
+            baseTitle: rendering.tooltipTitle,
             context: appContextDetector.currentContext()
         )
+    }
+
+    private func tintColor(for state: MenuBarStatusState) -> NSColor? {
+        switch state {
+        case .idle:
+            return nil
+        case .listening:
+            return .systemRed
+        case .processing:
+            return .systemBlue
+        case .error:
+            return .systemOrange
+        }
     }
 
     @objc private func openPreferences() {
@@ -145,7 +181,6 @@ final class MenuBarController: NSObject {
     }
 
     private func startPushToTalk() {
-        refreshAppContextTooltip()
         audioManager.startListening()
         updateMenuState()
     }
@@ -158,7 +193,7 @@ final class MenuBarController: NSObject {
     private func updateMenuState() {
         hotkeyManager?.refreshPermissionStatus()
 
-        startListeningItem.title = audioManager.isListening ? "Stop Listening" : "Start Listening"
+        updateStatus(audioManager.status)
         hotkeyStatusItem.title = "Push-to-talk: hold \(hotkeyConfiguration.displayName)"
 
         if hotkeyManager?.hasRequiredPermissions == true {
@@ -174,6 +209,5 @@ final class MenuBarController: NSObject {
 extension MenuBarController: NSMenuDelegate {
     func menuWillOpen(_: NSMenu) {
         updateMenuState()
-        refreshAppContextTooltip()
     }
 }
