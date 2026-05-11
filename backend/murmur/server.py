@@ -22,6 +22,8 @@ from murmur.vad import EnergyVoiceActivityDetector
 
 logger = logging.getLogger(__name__)
 
+Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
 SOCKET_PATH = Path(tempfile.gettempdir()) / "murmur.sock"
 DEFAULT_MODEL = "whisper-base"
 
@@ -111,8 +113,7 @@ class MurmurDaemon:
 
     async def _dispatch(self, command: str, request: dict[str, Any]) -> dict[str, Any]:
         """Dispatch a command to the appropriate handler."""
-        handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
-        handlers: dict[str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]] = {
+        handlers: dict[str, Handler] = {
             "transcribe": self._cmd_transcribe,
             "switch-model": self._cmd_switch_model,
             "list-models": self._cmd_list_models,

@@ -31,6 +31,7 @@ models/
 *.gguf
 
 # Swift / Xcode
+app/.build/
 app/build/
 app/DerivedData/
 *.xcuserdata
