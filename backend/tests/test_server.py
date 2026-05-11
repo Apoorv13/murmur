@@ -12,13 +12,17 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from murmur.engine.base import STTEngine, TranscriptionResult
+from murmur.engine.base import ModelInfo, STTEngine, TranscriptionResult
 from murmur.engine.registry import MODELS, ModelRegistry
 from murmur.server import MAX_MESSAGE_BYTES, MurmurDaemon
 
 
 class FakeEngine(STTEngine):
     """In-memory test engine that avoids loading real ML models."""
+
+    def __init__(self, model_info: ModelInfo) -> None:
+        super().__init__(model_info)
+        self.initial_prompts: list[str | None] = []
 
     async def load(self) -> None:
         self._loaded = True
@@ -35,6 +39,7 @@ class FakeEngine(STTEngine):
         initial_prompt: str | None = None,
         **kwargs: Any,
     ) -> TranscriptionResult:
+        self.initial_prompts.append(initial_prompt)
         return TranscriptionResult(text="hello world", language=language, duration_ms=12.3)
 
 
@@ -139,11 +144,22 @@ async def test_transcribe_reloads_last_selected_model_after_idle_unload(tmp_path
     audio = np.full(4000, 0.1, dtype=np.float32)
     audio_b64 = base64.b64encode(audio.tobytes()).decode()
 
-    response = await daemon._cmd_transcribe({"audio": audio_b64})
+    response = await daemon._cmd_transcribe(
+        {"audio": audio_b64, "bundle_id": "com.microsoft.VSCode", "app_name": "Visual Studio Code"},
+    )
 
     assert response["text"] == "hello world"
     assert response["model"] == "whisper-small"
     assert registry.loaded_models == ["whisper-small"]
+    active_engine = registry.active_engine
+    assert active_engine is not None
+    assert active_engine.initial_prompts
+    initial_prompt = active_engine.initial_prompts[0]
+    assert initial_prompt is not None
+    assert "Local dictation guidance" in initial_prompt
+    assert "Active app category: code" in initial_prompt
+    assert "workspace" in initial_prompt
+    assert "Indian English" in initial_prompt
     status = await daemon._cmd_status({})
     assert status["active_model"] == "whisper-small"
     assert status["loaded_model"] == "whisper-small"

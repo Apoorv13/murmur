@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 
 from murmur.audio import AudioCapture
-from murmur.context import DEFAULT_ACCENT_PROFILE, get_context_for_app
+from murmur.context import DEFAULT_ACCENT_PROFILE, DEFAULT_LANGUAGE, get_context_for_app
 from murmur.engine.base import STTEngine
 from murmur.engine.registry import ModelRegistry
 from murmur.vad import EnergyVoiceActivityDetector
@@ -175,13 +175,19 @@ class MurmurDaemon:
                 bundle_id = request.get("bundle_id", "")
                 app_name = request.get("app_name", "")
                 accent_profile = request.get("accent_profile", DEFAULT_ACCENT_PROFILE)
-                context = get_context_for_app(bundle_id, app_name, accent_profile=accent_profile)
+                language = request.get("language", DEFAULT_LANGUAGE)
+                context = get_context_for_app(
+                    bundle_id,
+                    app_name,
+                    accent_profile=accent_profile,
+                    language=language,
+                )
 
                 vad_result = self.vad.detect(audio, sample_rate=sample_rate)
                 if not vad_result.has_speech:
                     return {
                         "text": "",
-                        "language": request.get("language", context.language),
+                        "language": context.language,
                         "duration_ms": 0.0,
                         "model": self.registry.active_model,
                         "context": context.category,
@@ -193,7 +199,7 @@ class MurmurDaemon:
                 result = await engine.transcribe(
                     vad_result.trimmed_audio,
                     sample_rate=sample_rate,
-                    language=request.get("language", context.language),
+                    language=context.language,
                     initial_prompt=context.prompt,
                 )
             finally:

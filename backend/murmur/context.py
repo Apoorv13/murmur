@@ -7,6 +7,19 @@ from dataclasses import dataclass
 
 DEFAULT_LANGUAGE = "en"
 DEFAULT_ACCENT_PROFILE = "indian_english"
+MAX_INITIAL_PROMPT_CHARS = 1200
+MAX_VOCABULARY_TERMS = 48
+MAX_VOCABULARY_TERM_CHARS = 80
+
+BASE_LOCAL_DICTATION_GUIDANCE = (
+    "Local dictation guidance: transcribe the current utterance only as dictated text; "
+    "preserve spoken punctuation, acronyms, product names, code, commands, and formatting "
+    "cues; do not add commentary."
+)
+
+LANGUAGE_PROMPTS: dict[str, str] = {
+    "en": "Language: English.",
+}
 
 
 @dataclass(frozen=True)
@@ -218,15 +231,97 @@ def _canonical_category(category: str) -> str:
     return CATEGORY_ALIASES.get(category, category)
 
 
+def _prompt_category(category: str) -> str:
+    canonical_category = _canonical_category(category)
+    if canonical_category in CONTEXT_PROMPTS:
+        return canonical_category
+    return "general"
+
+
+def _clean_vocabulary_term(term: str) -> str:
+    return " ".join(term.split())[:MAX_VOCABULARY_TERM_CHARS]
+
+
 def _dedupe_terms(terms: Sequence[str]) -> tuple[str, ...]:
     seen: set[str] = set()
     deduped: list[str] = []
     for term in terms:
-        normalized = term.casefold()
+        cleaned = _clean_vocabulary_term(term)
+        if not cleaned:
+            continue
+        normalized = cleaned.casefold()
         if normalized not in seen:
-            deduped.append(term)
+            deduped.append(cleaned)
             seen.add(normalized)
     return tuple(deduped)
+
+
+def _bounded_vocabulary_prompt(
+    terms: Sequence[str],
+    *,
+    remaining_chars: int,
+) -> str:
+    if remaining_chars <= len("Vocabulary hints: ."):
+        return ""
+
+    selected: list[str] = []
+    for term in terms[:MAX_VOCABULARY_TERMS]:
+        candidate_terms = (*selected, term)
+        candidate = f"Vocabulary hints: {', '.join(candidate_terms)}."
+        if len(candidate) > remaining_chars:
+            break
+        selected.append(term)
+
+    if not selected:
+        return ""
+    return f"Vocabulary hints: {', '.join(selected)}."
+
+
+def _join_sections_within_limit(sections: Sequence[str], max_chars: int) -> str:
+    selected: list[str] = []
+    for section in sections:
+        if not section:
+            continue
+        candidate = " ".join((*selected, section))
+        if len(candidate) <= max_chars:
+            selected.append(section)
+    return " ".join(selected)
+
+
+def build_initial_prompt(
+    category: str,
+    accent_profile: str = DEFAULT_ACCENT_PROFILE,
+    *,
+    app_terms: Sequence[str] = (),
+    language: str = DEFAULT_LANGUAGE,
+    max_chars: int = MAX_INITIAL_PROMPT_CHARS,
+) -> str:
+    """Build a bounded, deterministic initial prompt from safe context hints."""
+    prompt_category = _prompt_category(category)
+    context_prompt = CONTEXT_PROMPTS[prompt_category]
+    category_terms = CATEGORY_VOCABULARY.get(
+        prompt_category,
+        CATEGORY_VOCABULARY["general"],
+    )
+    vocabulary = _dedupe_terms((*category_terms, *app_terms))
+    accent_prompt = ACCENT_PROFILES.get(accent_profile, ACCENT_PROFILES[DEFAULT_ACCENT_PROFILE])
+
+    sections = [
+        BASE_LOCAL_DICTATION_GUIDANCE,
+        f"Active app category: {prompt_category}. {context_prompt}",
+        LANGUAGE_PROMPTS.get(language, f"Language: {language}.") if language else "",
+        accent_prompt,
+    ]
+    prompt = _join_sections_within_limit(sections, max_chars)
+
+    if vocabulary:
+        separator_chars = 1 if prompt else 0
+        remaining_chars = max_chars - len(prompt) - separator_chars
+        vocabulary_prompt = _bounded_vocabulary_prompt(vocabulary, remaining_chars=remaining_chars)
+        if vocabulary_prompt:
+            prompt = f"{prompt} {vocabulary_prompt}" if prompt else vocabulary_prompt
+
+    return prompt
 
 
 def build_context_prompt(
@@ -236,21 +331,7 @@ def build_context_prompt(
     app_terms: Sequence[str] = (),
 ) -> str:
     """Build a prompt from app context and accent recognition hints."""
-    canonical_category = _canonical_category(category)
-    context_prompt = CONTEXT_PROMPTS.get(canonical_category, CONTEXT_PROMPTS["general"])
-    category_terms = CATEGORY_VOCABULARY.get(
-        canonical_category,
-        CATEGORY_VOCABULARY["general"],
-    )
-    vocabulary = _dedupe_terms((*category_terms, *app_terms))
-    accent_prompt = ACCENT_PROFILES.get(accent_profile, ACCENT_PROFILES[DEFAULT_ACCENT_PROFILE])
-
-    if vocabulary:
-        context_prompt = f"{context_prompt} Vocabulary hints: {', '.join(vocabulary)}."
-
-    if not accent_prompt:
-        return context_prompt
-    return f"{context_prompt} {accent_prompt}"
+    return build_initial_prompt(category, accent_profile, app_terms=app_terms)
 
 
 def get_context_for_app(
@@ -258,6 +339,7 @@ def get_context_for_app(
     app_name: str = "",
     *,
     accent_profile: str = DEFAULT_ACCENT_PROFILE,
+    language: str = DEFAULT_LANGUAGE,
     vocabulary_map: Mapping[str, VocabularyProfile] | None = None,
 ) -> AppContext:
     """Get transcription context based on the active application.
@@ -266,6 +348,7 @@ def get_context_for_app(
         bundle_id: The macOS bundle identifier of the active app
         app_name: Human-readable app name (optional)
         accent_profile: Recognition hint profile to include in the prompt
+        language: Language hint to include in the prompt
         vocabulary_map: Optional bundle ID vocabulary map override
 
     Returns:
@@ -273,14 +356,19 @@ def get_context_for_app(
     """
     profiles = APP_VOCABULARY if vocabulary_map is None else vocabulary_map
     profile = profiles.get(bundle_id, VocabularyProfile("general"))
-    category = _canonical_category(profile.category)
-    prompt = build_context_prompt(category, accent_profile, app_terms=profile.terms)
+    category = _prompt_category(profile.category)
+    prompt = build_initial_prompt(
+        category,
+        accent_profile,
+        app_terms=profile.terms,
+        language=language,
+    )
 
     return AppContext(
         bundle_id=bundle_id,
         app_name=app_name,
         category=category,
         prompt=prompt,
-        language=DEFAULT_LANGUAGE,
+        language=language,
         accent_profile=accent_profile,
     )
