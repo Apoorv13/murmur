@@ -15,6 +15,10 @@ let package = Package(
         .executable(
             name: "Murmur",
             targets: ["Murmur"]
+        ),
+        .executable(
+            name: "MurmurIPCFramingChecks",
+            targets: ["MurmurIPCFramingChecks"]
         )
     ],
     targets: [
@@ -31,6 +35,11 @@ let package = Package(
             name: "MurmurCoreTests",
             dependencies: ["MurmurCore"],
             path: "Tests/MurmurCoreTests"
+        ),
+        .executableTarget(
+            name: "MurmurIPCFramingChecks",
+            dependencies: ["MurmurCore"],
+            path: "Tests/MurmurIPCFramingChecks"
         )
     ]
 )

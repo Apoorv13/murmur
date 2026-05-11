@@ -26,6 +26,7 @@ final class MenuBarController: NSObject {
         self.hotkeyConfiguration = hotkeyConfiguration
         statusItem = statusBar.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
+        configureAudioManagerCallbacks()
         hotkeyManager = HotkeyManager(
             configuration: hotkeyConfiguration,
             onPress: { [weak self] in
@@ -49,6 +50,19 @@ final class MenuBarController: NSObject {
         statusItem.menu = buildMenu()
         updateMenuState()
         refreshAppContextTooltip()
+    }
+
+    private func configureAudioManagerCallbacks() {
+        audioManager.onStateChanged = { [weak self] _ in
+            self?.updateMenuState()
+        }
+        audioManager.onError = { [weak self] message in
+            self?.showAlert(title: "Murmur Audio Error", message: message)
+        }
+        audioManager.onTranscription = { [weak self] text, speechDetected in
+            let message = speechDetected && !text.isEmpty ? text : "No speech detected."
+            self?.showAlert(title: "Murmur Transcription", message: message)
+        }
     }
 
     private func buildMenu() -> NSMenu {
@@ -92,14 +106,18 @@ final class MenuBarController: NSObject {
 
     @objc private func toggleListening() {
         refreshAppContextTooltip()
-
-        if audioManager.isListening {
-            audioManager.stopListening()
-        } else {
-            audioManager.startListening()
-        }
-
+        audioManager.toggleListening()
         updateMenuState()
+    }
+
+    private func showAlert(title: String, message: String) {
+        NSApp.activate()
+
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func refreshAppContextTooltip() {
