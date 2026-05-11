@@ -6,8 +6,11 @@ from murmur.tui.app import (
     ModelSummary,
     advance_model_index,
     build_model_summaries,
+    daemon_commands_for_action,
+    format_daemon_error,
     render_model_switcher,
 )
+from murmur.tui.ipc import DaemonIPCError, DaemonUnavailableError
 from murmur.tui.transcription_log import (
     TranscriptionHistory,
     render_transcription_entry,
@@ -135,3 +138,30 @@ def test_transcription_history_clear_removes_entries() -> None:
 
     assert history.entries == ()
     assert "No transcriptions captured" in render_transcription_history(history.entries).plain
+
+
+def test_tui_command_dispatch_mapping_uses_daemon_ipc_commands() -> None:
+    assert daemon_commands_for_action("refresh_status") == ("status", "list-models")
+    assert daemon_commands_for_action("reload_models") == ("list-models",)
+    assert daemon_commands_for_action("unload_model") == ("unload",)
+    assert daemon_commands_for_action("clear_log") == ()
+    assert daemon_commands_for_action("quit") == ()
+    assert daemon_commands_for_action("unknown") == ()
+
+
+def test_format_daemon_error_reports_unavailable_explicitly() -> None:
+    message = format_daemon_error(
+        "refreshing status",
+        DaemonUnavailableError("socket /private/user/murmur.sock missing"),
+    )
+
+    assert message == (
+        "Daemon unavailable while refreshing status. Start murmur-daemon, then retry."
+    )
+    assert "/private/user" not in message
+
+
+def test_format_daemon_error_collapses_and_clips_ipc_errors() -> None:
+    message = format_daemon_error("reloading model list", DaemonIPCError("bad\n\nresponse"))
+
+    assert message == "Unable to complete reloading model list: bad response"

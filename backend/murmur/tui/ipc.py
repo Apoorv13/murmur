@@ -120,3 +120,7 @@ class MurmurIPCClient:
     async def switch_model(self, model: str) -> dict[str, Any]:
         """Ask the daemon to switch to a different model."""
         return await self.command("switch-model", model=model)
+
+    async def unload_model(self) -> dict[str, Any]:
+        """Ask the daemon to unload the current model."""
+        return await self.command("unload")
