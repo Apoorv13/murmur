@@ -24,7 +24,7 @@ final class AccessibilityHotkeyPermissionChecker: HotkeyPermissionChecking {
 }
 
 final class HotkeyManager {
-    private let configuration: HotkeyConfiguration
+    private var configuration: HotkeyConfiguration
     private let permissionChecker: HotkeyPermissionChecking
     private let onPress: () -> Void
     private let onRelease: () -> Void
@@ -78,6 +78,11 @@ final class HotkeyManager {
             NSEvent.removeMonitor(localMonitor)
             self.localMonitor = nil
         }
+    }
+
+    func updateConfiguration(_ configuration: HotkeyConfiguration) {
+        self.configuration = configuration
+        matcher = HotkeyMatcher()
     }
 
     func refreshPermissionStatus() {

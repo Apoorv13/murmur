@@ -104,10 +104,14 @@ public final class AudioCaptureManager: AudioCaptureManaging {
 }
 
 public protocol PreferencesManaging: AnyObject {
+    var onPreferencesChanged: ((AppPreferences) -> Void)? { get set }
+
     func openPreferences()
 }
 
 public final class PreferencesManager: PreferencesManaging {
+    public var onPreferencesChanged: ((AppPreferences) -> Void)?
+
     public init() {}
 
     public func openPreferences() {

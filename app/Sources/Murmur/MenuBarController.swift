@@ -5,7 +5,7 @@ final class MenuBarController: NSObject {
     private let audioManager: AudioCaptureManaging
     private let preferencesManager: PreferencesManaging
     private let appContextDetector: AppContextDetecting
-    private let hotkeyConfiguration: HotkeyConfiguration
+    private var hotkeyConfiguration: HotkeyConfiguration
     private let launchAtLoginController: LaunchAtLoginControlling
     private let statusItem: NSStatusItem
     private let currentStatusItem = NSMenuItem()
@@ -34,6 +34,9 @@ final class MenuBarController: NSObject {
         statusItem = statusBar.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureAudioManagerCallbacks()
+        preferencesManager.onPreferencesChanged = { [weak self] preferences in
+            self?.applyPreferences(preferences)
+        }
         hotkeyManager = HotkeyManager(
             configuration: hotkeyConfiguration,
             onPress: { [weak self] in
@@ -227,6 +230,12 @@ final class MenuBarController: NSObject {
 
     private func stopPushToTalk() {
         audioManager.stopListening()
+        updateMenuState()
+    }
+
+    private func applyPreferences(_ preferences: AppPreferences) {
+        hotkeyConfiguration = preferences.pushToTalkHotkey
+        hotkeyManager?.updateConfiguration(preferences.pushToTalkHotkey)
         updateMenuState()
     }
 
