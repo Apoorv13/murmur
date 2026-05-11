@@ -63,10 +63,18 @@ def test_decode_rejects_non_object_json() -> None:
 
 
 @pytest.mark.asyncio
-async def test_switch_model_sends_expected_command_payload() -> None:
+async def test_client_methods_send_expected_command_payloads() -> None:
     client = RecordingIPCClient()
 
+    await client.status()
+    await client.list_models()
+    await client.unload_model()
     response = await client.switch_model("whisper-small")
 
     assert response == {"status": "ok", "model": "whisper-small"}
-    assert client.calls == [("switch-model", {"model": "whisper-small"})]
+    assert client.calls == [
+        ("status", {}),
+        ("list-models", {}),
+        ("unload", {}),
+        ("switch-model", {"model": "whisper-small"}),
+    ]

@@ -34,6 +34,63 @@ class ModelSummary:
     active: bool
 
 
+@dataclass(frozen=True)
+class TuiCommand:
+    """Keyboard/palette command metadata for daemon-safe actions."""
+
+    action: str
+    key: str
+    label: str
+    daemon_commands: tuple[str, ...] = ()
+
+
+TUI_COMMANDS = (
+    TuiCommand(
+        action="refresh_status",
+        key="r",
+        label="Refresh status",
+        daemon_commands=("status", "list-models"),
+    ),
+    TuiCommand(
+        action="reload_models",
+        key="l",
+        label="Reload/list models",
+        daemon_commands=("list-models",),
+    ),
+    TuiCommand(
+        action="unload_model",
+        key="u",
+        label="Unload model",
+        daemon_commands=("unload",),
+    ),
+    TuiCommand(action="clear_log", key="c", label="Clear local log/history"),
+    TuiCommand(action="quit", key="q", label="Quit"),
+)
+COMMAND_BINDINGS = tuple((command.key, command.action, command.label) for command in TUI_COMMANDS)
+MODEL_BINDINGS = (
+    ("up", "select_previous_model", "Prev model"),
+    ("k", "select_previous_model", "Prev model"),
+    ("down", "select_next_model", "Next model"),
+    ("j", "select_next_model", "Next model"),
+    ("s", "switch_model", "Switch model"),
+)
+
+
+def daemon_commands_for_action(action: str) -> tuple[str, ...]:
+    """Return daemon IPC command names dispatched by a TUI action."""
+    for command in TUI_COMMANDS:
+        if command.action == action:
+            return command.daemon_commands
+    return ()
+
+
+def format_daemon_error(action: str, error: DaemonIPCError) -> str:
+    """Format explicit, privacy-safe daemon errors for the TUI."""
+    if isinstance(error, DaemonUnavailableError):
+        return f"Daemon unavailable while {action}. Start murmur-daemon, then retry."
+    return f"Unable to complete {action}: {_safe_error(error)}"
+
+
 def build_model_summaries(response: Mapping[str, Any]) -> tuple[ModelSummary, ...]:
     """Extract whitelisted model metadata from a list-models response."""
     active_value = response.get("active")
@@ -74,7 +131,10 @@ def render_model_switcher(
 ) -> Text:
     """Render the model switcher panel."""
     text = Text("Model switcher\n", style="bold")
-    text.append("↑/↓ or j/k select · s switch · r refresh\n", style="dim")
+    text.append(
+        "ctrl+p commands · ↑/↓ or j/k select · s switch · r status · l models · u unload\n",
+        style="dim",
+    )
     if status_message:
         text.append(status_message, style=status_style)
         text.append("\n")
@@ -272,14 +332,9 @@ class MurmurControlPanel(App[None]):
     """
 
     BINDINGS = [
-        ("r", "refresh_dashboard", "Refresh"),
-        ("c", "clear_log", "Clear log"),
-        ("up", "select_previous_model", "Prev model"),
-        ("k", "select_previous_model", "Prev model"),
-        ("down", "select_next_model", "Next model"),
-        ("j", "select_next_model", "Next model"),
-        ("s", "switch_model", "Switch model"),
-        ("q", "quit", "Quit"),
+        ("ctrl+p", "command_palette", "Commands"),
+        *MODEL_BINDINGS,
+        *COMMAND_BINDINGS,
     ]
 
     def __init__(self, client: MurmurIPCClient | None = None) -> None:
@@ -304,6 +359,29 @@ class MurmurControlPanel(App[None]):
         self.set_interval(_REFRESH_INTERVAL_SECONDS, self.refresh_dashboard)
 
     def action_refresh_dashboard(self) -> None:
+        self.refresh_dashboard()
+
+    def action_refresh_status(self) -> None:
+        self.refresh_dashboard()
+
+    async def action_reload_models(self) -> None:
+        await self.reload_models()
+
+    async def action_unload_model(self) -> None:
+        model_panel = self.query_one(ModelSwitcherPanel)
+        log_panel = self.query_one(TranscriptionLogPanel)
+
+        try:
+            response = await self.client.unload_model()
+        except DaemonIPCError as exc:
+            message = format_daemon_error("unloading the active model", exc)
+            model_panel.set_error(message)
+            log_panel.show_notice(message, style="bold red")
+            return
+
+        active_model = _safe_label(response.get("active_model"), fallback="configured model")
+        message = f"Unloaded current model. Active selection remains {active_model}."
+        log_panel.show_notice(message, style="green")
         self.refresh_dashboard()
 
     def action_clear_log(self) -> None:
@@ -340,13 +418,8 @@ class MurmurControlPanel(App[None]):
 
         try:
             response = await self.client.switch_model(selected_model)
-        except DaemonUnavailableError:
-            message = "Daemon unavailable. Start murmur-daemon, then retry."
-            model_panel.set_error(message)
-            log_panel.show_notice(message, style="bold red")
-            return
         except DaemonIPCError as exc:
-            message = f"Switch failed: {_safe_error(exc)}"
+            message = format_daemon_error("switching models", exc)
             model_panel.set_error(message)
             log_panel.show_notice(message, style="bold red")
             return
@@ -407,6 +480,24 @@ class MurmurControlPanel(App[None]):
         stats_panel.update(self._render_stats(self._last_status))
         self._record_transcription_progress(self._last_status)
         log_panel.show_notice("Connected to Murmur daemon", style="green")
+
+    async def reload_models(self) -> None:
+        model_panel = self.query_one(ModelSwitcherPanel)
+        log_panel = self.query_one(TranscriptionLogPanel)
+
+        try:
+            models = await self.client.list_models()
+        except DaemonIPCError as exc:
+            message = format_daemon_error("reloading model list", exc)
+            if isinstance(exc, DaemonUnavailableError):
+                model_panel.set_unavailable()
+            else:
+                model_panel.set_error(message)
+            log_panel.show_notice(message, style="bold red")
+            return
+
+        model_panel.update_models(models)
+        log_panel.show_notice("Reloaded daemon model list.", style="green")
 
     def _render_stats(self, status: Mapping[str, Any]) -> Text:
         return render_stats(status)
