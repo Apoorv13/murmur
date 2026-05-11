@@ -49,18 +49,39 @@ TUI Control Panel (Textual — monitoring & control)
 git clone https://github.com/yourusername/murmur.git
 cd murmur
 
-# Set up Python backend
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+# Set up the backend, then start the daemon and development menu bar app
+scripts/murmur-dev setup
+scripts/murmur-dev start
 
-# Start the daemon
-murmur-daemon
-
-# Launch TUI control panel
-murmur-tui
+# Optional: open the TUI control panel in this terminal
+scripts/murmur-dev tui
 ```
+
+Useful development commands:
+
+```bash
+scripts/murmur-dev status
+scripts/murmur-dev stop
+scripts/murmur-dev restart
+```
+
+To have Murmur ready automatically when you log in:
+
+```bash
+scripts/murmur-dev install-agent
+```
+
+That LaunchAgent starts both the backend daemon and the development SwiftPM menu
+bar app. If you only want the backend daemon to autostart, use:
+
+```bash
+scripts/murmur-dev install-agent --daemon-only
+```
+
+The SwiftPM menu bar app is still a development executable, not a signed `.app`
+bundle. The in-app Launch at Login toggle remains disabled until Murmur is
+packaged as a signed app bundle, but the development LaunchAgent above works for
+local testing.
 
 ## Development
 
