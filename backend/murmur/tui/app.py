@@ -1,9 +1,11 @@
-"""Textual dashboard scaffold for Murmur."""
+"""Textual dashboard for Murmur."""
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any
 
 from rich.text import Text
@@ -12,6 +14,9 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
 from murmur.tui.ipc import DaemonIPCError, DaemonUnavailableError, MurmurIPCClient
+from murmur.tui.stats import render_stats
+
+_REFRESH_INTERVAL_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -243,6 +248,8 @@ class MurmurControlPanel(App[None]):
     def __init__(self, client: MurmurIPCClient | None = None) -> None:
         super().__init__()
         self.client = client or MurmurIPCClient()
+        self._last_status: dict[str, Any] | None = None
+        self._last_status_at: float | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -253,12 +260,12 @@ class MurmurControlPanel(App[None]):
             yield Static("Log panel placeholder", id="log-panel", classes="panel")
         yield Footer()
 
-    async def on_mount(self) -> None:
-        await self.refresh_dashboard()
-        self.set_interval(5.0, self.refresh_dashboard)
+    def on_mount(self) -> None:
+        self.refresh_dashboard()
+        self.set_interval(_REFRESH_INTERVAL_SECONDS, self.refresh_dashboard)
 
-    async def action_refresh_dashboard(self) -> None:
-        await self.refresh_dashboard()
+    def action_refresh_dashboard(self) -> None:
+        self.refresh_dashboard()
 
     def action_select_next_model(self) -> None:
         self.query_one(ModelSwitcherPanel).select_next()
@@ -304,40 +311,65 @@ class MurmurControlPanel(App[None]):
         switched_model = _safe_label(response.get("model"), fallback=selected_model)
         model_panel.switch_succeeded(switched_model)
         log_panel.update(Text(f"Switched active model to {switched_model}.", style="green"))
+        self.refresh_dashboard()
 
-    async def refresh_dashboard(self) -> None:
+    def refresh_dashboard(self) -> None:
+        self.run_worker(
+            self._refresh_dashboard(),
+            name="dashboard-refresh",
+            group="dashboard",
+            exclusive=True,
+        )
+
+    async def _refresh_dashboard(self) -> None:
         model_panel = self.query_one(ModelSwitcherPanel)
         stats_panel = self.query_one("#stats-panel", Static)
         log_panel = self.query_one("#log-panel", Static)
 
         try:
-            status = await self.client.status()
-            models = await self.client.list_models()
-        except DaemonUnavailableError:
+            status, models = await asyncio.gather(
+                self.client.status(),
+                self.client.list_models(),
+            )
+        except DaemonUnavailableError as exc:
             model_panel.set_unavailable()
-            stats_panel.update(Text("Stats panel\nDaemon unavailable", style="bold red"))
+            stats_panel.update(
+                render_stats(
+                    self._last_status,
+                    unavailable_message=_safe_error(exc),
+                    age_seconds=self._last_status_age_seconds(),
+                ),
+            )
             log_panel.update(
                 Text("Daemon unavailable. Start murmur-daemon, then refresh.", style="yellow"),
             )
             return
         except DaemonIPCError as exc:
+            message = f"IPC error: {_safe_error(exc)}"
             model_panel.set_error("Unable to read daemon model state.")
-            stats_panel.update(Text("Stats panel\nIPC error", style="bold red"))
-            log_panel.update(Text(f"IPC error: {_safe_error(exc)}", style="yellow"))
+            stats_panel.update(
+                render_stats(
+                    self._last_status,
+                    unavailable_message=message,
+                    age_seconds=self._last_status_age_seconds(),
+                ),
+            )
+            log_panel.update(Text(message, style="yellow"))
             return
 
+        self._last_status = dict(status)
+        self._last_status_at = monotonic()
         model_panel.update_models(models)
-        stats_panel.update(self._render_stats(status))
+        stats_panel.update(self._render_stats(self._last_status))
         log_panel.update(Text("Connected to Murmur daemon", style="green"))
 
     def _render_stats(self, status: Mapping[str, Any]) -> Text:
-        text = Text("Stats panel\n", style="bold")
-        text.append(f"Status: {status.get('status', 'unknown')}\n")
-        text.append(f"Model loaded: {status.get('model_loaded', False)}\n")
-        text.append(f"Transcriptions: {status.get('transcriptions', 0)}\n")
-        text.append(f"Average latency: {status.get('avg_latency_ms', 0)} ms\n")
-        text.append(f"Uptime: {status.get('uptime_seconds', 0)} s")
-        return text
+        return render_stats(status)
+
+    def _last_status_age_seconds(self) -> float | None:
+        if self._last_status_at is None:
+            return None
+        return monotonic() - self._last_status_at
 
 
 def _as_mapping(value: object) -> Mapping[str, Any]:
