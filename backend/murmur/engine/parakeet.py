@@ -55,10 +55,7 @@ class ParakeetEngine(STTEngine):
             result = parakeet_transcribe(audio, sample_rate=sample_rate)
             text = result if isinstance(result, str) else result.get("text", "")
         except ImportError:
-            msg = (
-                "parakeet-mlx not installed. "
-                "Install with: pip install murmur-backend[parakeet]"
-            )
+            msg = "parakeet-mlx not installed. Install with: pip install murmur-backend[parakeet]"
             raise RuntimeError(msg) from None
 
         duration_ms = (time.perf_counter() - start) * 1000

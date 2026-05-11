@@ -34,12 +34,8 @@ CONTEXT_PROMPTS: dict[str, str] = {
         "Command line and shell commands. Common terms: sudo, grep, pipe, "
         "directory, chmod, ssh, docker, kubectl, npm, pip, brew."
     ),
-    "casual": (
-        "Casual conversation with colleagues."
-    ),
-    "general": (
-        "General text input."
-    ),
+    "casual": ("Casual conversation with colleagues."),
+    "general": ("General text input."),
 }
 
 
