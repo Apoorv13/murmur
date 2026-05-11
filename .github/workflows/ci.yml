@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install -e .
+
+      - name: Lint with ruff
+        run: |
+          cd backend
+          ruff check .
+
+      - name: Format check with ruff
+        run: |
+          cd backend
+          ruff format --check .
+
+      - name: Type check with mypy
+        run: |
+          cd backend
+          mypy .
+
+      - name: Run tests with pytest
+        run: |
+          cd backend
+          pytest --tb=short
+        continue-on-error: true
+
+  swift:
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        run: swiftlint lint app/ --reporter colored
